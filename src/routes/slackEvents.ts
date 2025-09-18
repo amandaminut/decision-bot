@@ -116,6 +116,69 @@ export class SlackEventsHandler {
       threadText = evt.text;
     }
 
+    // Route based on message content
+    const begin = threadText.indexOf(">") + 2;
+    const messageText = threadText.toLowerCase().substring(begin, threadText.length).trim();
+    console.log("Message text:", messageText);
+
+    if (messageText.startsWith("create")) {
+      await this.createNewDecision({
+        channel,
+        thread_ts,
+        channelName,
+        threadUrl,
+        threadText,
+      });
+    } else if (messageText.startsWith("update")) {
+      await this.updateDecision({
+        channel,
+        thread_ts,
+        channelName,
+        threadUrl,
+        threadText,
+      });
+    } else if (messageText.startsWith("read")) {
+      await this.fetchRelatedDecisions({
+        channel,
+        thread_ts,
+        channelName,
+        threadUrl,
+        threadText,
+      });
+    } else {
+      // Default to create behavior for backward compatibility
+      await this.createNewDecision({
+        channel,
+        thread_ts,
+        channelName,
+        threadUrl,
+        threadText,
+      });
+    }
+  }
+
+  /**
+   * Create a new decision in the Notion database
+   * @param params - Parameters for creating a new decision
+   * @param params.channel - Slack channel ID
+   * @param params.thread_ts - Slack thread timestamp
+   * @param params.channelName - Slack channel name
+   * @param params.threadUrl - Slack thread URL
+   * @param params.threadText - Thread text content
+   */
+  private async createNewDecision({
+    channel,
+    thread_ts,
+    channelName,
+    threadUrl,
+    threadText,
+  }: {
+    channel: string;
+    thread_ts: string;
+    channelName: string;
+    threadUrl: string;
+    threadText: string;
+  }): Promise<void> {
     // Extract decision using LLM
     const result = await extractDecisionFromThread(threadText);
 
@@ -193,12 +256,83 @@ export class SlackEventsHandler {
     // Post confirmation message
     const databaseUrl = this.notionService.getDatabaseUrl();
     const message = notionSuccess
-      ? `✅ Decision ${action} in Notion database: *${title}* (Tag: ${tag})${
-          comparison.similar
-            ? ` (Similarity: ${comparison.similarity_score}%)`
-            : ""
-        }\n<${databaseUrl}|View here>`
+      ? `✅ Decision ${action} in Notion database: *${title}* (Tag: ${tag})${comparison.similar
+        ? ` (Similarity: ${comparison.similarity_score}%)`
+        : ""
+      }\n<${databaseUrl}|View here>`
       : `❌ Failed to ${action} decision in Notion database: *${title}*`;
+
+    await this.slackService.apiCall(
+      "chat.postMessage",
+      {
+        channel,
+        thread_ts,
+        text: message,
+      },
+      this.slackService.getBotToken()!
+    );
+  }
+
+  /**
+   * Update an existing decision in the Notion database
+   * @param params - Parameters for updating a decision
+   * @param params.channel - Slack channel ID
+   * @param params.thread_ts - Slack thread timestamp
+   * @param params.channelName - Slack channel name
+   * @param params.threadUrl - Slack thread URL
+   * @param params.threadText - Thread text content
+   */
+  private async updateDecision({
+    channel,
+    thread_ts,
+    channelName,
+    threadUrl,
+    threadText,
+  }: {
+    channel: string;
+    thread_ts: string;
+    channelName: string;
+    threadUrl: string;
+    threadText: string;
+  }): Promise<void> {
+    // For now, return a simple static message
+    const message = `🔄 Update decision functionality is coming soon! This will allow you to modify existing decisions in the Notion database.`;
+
+    await this.slackService.apiCall(
+      "chat.postMessage",
+      {
+        channel,
+        thread_ts,
+        text: message,
+      },
+      this.slackService.getBotToken()!
+    );
+  }
+
+  /**
+   * Fetch related decisions from the Notion database
+   * @param params - Parameters for fetching related decisions
+   * @param params.channel - Slack channel ID
+   * @param params.thread_ts - Slack thread timestamp
+   * @param params.channelName - Slack channel name
+   * @param params.threadUrl - Slack thread URL
+   * @param params.threadText - Thread text content
+   */
+  private async fetchRelatedDecisions({
+    channel,
+    thread_ts,
+    channelName,
+    threadUrl,
+    threadText,
+  }: {
+    channel: string;
+    thread_ts: string;
+    channelName: string;
+    threadUrl: string;
+    threadText: string;
+  }): Promise<void> {
+    // For now, return a simple static message
+    const message = `📖 Fetch related decisions functionality is coming soon! This will allow you to search and retrieve related decisions from the Notion database.`;
 
     await this.slackService.apiCall(
       "chat.postMessage",
