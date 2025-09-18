@@ -1,3 +1,4 @@
+import "dotenv/config";
 import OpenAI from "openai";
 
 // Type definitions
@@ -12,7 +13,12 @@ interface OpenAIResponse {
 }
 
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+  defaultHeaders: {
+    "HTTP-Referer": "https://amanda.minut.dev", // Your site URL
+    "X-Title": "Decision Bot", // Your site name
+  },
 });
 
 // Returns { title, summary } — both short, safe to render.
@@ -28,7 +34,7 @@ export async function extractDecisionFromThread(
   try {
     // Chat Completions with JSON output (simple & reliable)
     const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "openai/gpt-4o-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
