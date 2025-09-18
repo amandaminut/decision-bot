@@ -1,16 +1,7 @@
-import "dotenv/config";
-import OpenAI from "openai";
-
-// Type definitions
-interface DecisionExtraction {
-  title: string;
-  summary: string;
-}
-
-interface OpenAIResponse {
-  title?: string;
-  summary?: string;
-}
+import "dotenv/config"
+import OpenAI from "openai"
+import { DecisionExtraction, OpenAIResponse } from "./types"
+import { extractTitleFallback, extractSummaryFallback } from "./utils/stringUtils"
 
 const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -71,18 +62,3 @@ export async function extractDecisionFromThread(
   }
 }
 
-// Fallback functions for when OpenAI fails
-function extractTitleFallback(text: string): string {
-  const first =
-    text
-      .split(/\n|\./)
-      .map((s) => s.trim())
-      .find(Boolean) || "Decision";
-  return first.slice(0, 80);
-}
-
-function extractSummaryFallback(text: string): string {
-  let s = text.replace(/\s+/g, " ").trim();
-  if (s.length > 180) s = s.slice(0, 177) + "...";
-  return s || "Summary TBD";
-}

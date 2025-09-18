@@ -82,11 +82,30 @@ npm start
 
 ## Features
 
-- **AI-Powered**: Uses GPT-4o-mini to intelligently extract decisions
-- **Thread Reading**: Captures full conversation context
-- **Canvas Integration**: Creates organized decision logs in Slack canvases
-- **Fallback Handling**: Works even if AI service is unavailable
-- **TypeScript**: Fully typed for better development experience
+- Monitors Slack channels for app mentions
+- Extracts decision summaries using OpenAI's GPT-4o-mini
+- Creates and maintains decision logs in Slack canvases
+- Handles thread conversations and individual messages
+
+## Project Structure
+
+```
+src/
+├── types/           # TypeScript type definitions
+│   └── index.ts
+├── services/        # Business logic services
+│   ├── slackService.ts    # Slack API interactions
+│   └── canvasService.ts   # Canvas management
+├── middleware/      # Express middleware
+│   └── slackVerification.ts  # Slack signature verification
+├── routes/          # Express route handlers
+│   ├── health.ts    # Health check endpoint
+│   └── slackEvents.ts  # Slack events processing
+├── utils/           # Utility functions
+│   └── stringUtils.ts
+├── llm.ts          # OpenAI integration
+└── server.ts       # Main application entry point
+```
 
 ## API Endpoints
 
