@@ -36,17 +36,10 @@ export class NotionService {
 	 */
 	async addDecision(entry: NotionDatabaseEntry): Promise<NotionOperationResult> {
 		try {
-			console.log("\n" + "=".repeat(80))
-			console.log("📝 ADDING DECISION TO NOTION DATABASE")
-			console.log("=".repeat(80))
-			console.log("Decision Entry:", JSON.stringify(entry, null, 2))
-
 			// First, get the database schema to understand the property types
 			const database = await this.notion.databases.retrieve({
 				database_id: this.databaseId,
 			})
-
-			console.log("📊 Database properties:", Object.keys(database.properties))
 
 			// Build properties dynamically based on what exists in the database
 			const properties: any = {}
@@ -98,8 +91,6 @@ export class NotionService {
 					date: { start: entry.date_timestamp }
 				}
 			}
-
-			console.log("🔧 Properties to create:", JSON.stringify(properties, null, 2))
 
 			const response = await this.notion.pages.create({
 				parent: {
@@ -233,9 +224,6 @@ export class NotionService {
 				database_id: this.databaseId,
 			})
 			
-			console.log("✅ Notion database connection successful")
-			console.log("📊 Database schema:")
-			console.log(JSON.stringify(database.properties, null, 2))
 			
 			return true
 		} catch (error) {

@@ -15,13 +15,14 @@ const client = new OpenAI({
 // Returns { title, summary } — both short, safe to render.
 export async function extractDecisionFromThread(
   threadText: string
-): Promise<DecisionExtraction> {
+): Promise<DecisionExtraction|{error: string}> {
   //TODO: Improve system prompt
   const system = [
     "You extract decisions from Slack threads.",
-    "Return compact JSON with keys: title (<=80 chars), summary (1–2 sentences), and tag (single descriptive word or short phrase).",
+    "Return compact JSON with keys: title (<=80 chars), summary (1–2 sentences), tag (single descriptive word or short phrase) and confidence (0-100).",
     "The tag should be a concise category or topic that describes the decision (e.g., 'architecture', 'process', 'tooling', 'policy').",
     "Do not include Markdown, quotes, or emojis in fields.",
+    "The confidence should be a number between 0 and 100 that represents the confidence in the decision.",
   ].join(" ");
 
   try {
@@ -45,7 +46,12 @@ export async function extractDecisionFromThread(
       throw new Error("No content received from OpenAI");
     }
 
-    const { title, summary, tag } = JSON.parse(content) as OpenAIResponse;
+    const { title, summary, tag, confidence } = JSON.parse(content) as OpenAIResponse;
+
+    if(confidence !== undefined && confidence < 50) {
+      console.log("Returning error");
+      return {error: "Could not confidently extract decision. Please provide more context."};
+    }
 
     // Basic guardrails
     return {

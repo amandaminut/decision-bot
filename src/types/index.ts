@@ -22,6 +22,16 @@ export interface SlackResponse {
 	canvas_id?: string
 	messages?: Array<{ text: string }>
 	canvases?: Array<{ title: string; canvas_id: string }>
+	channel?: {
+		name: string
+		id: string
+		is_private: boolean
+	}
+	channels?: Array<{
+		name: string
+		id: string
+		is_private: boolean
+	}>
 }
 
 export interface ExtendedRequest {
@@ -40,6 +50,7 @@ export interface OpenAIResponse {
 	title?: string
 	summary?: string
 	tag?: string
+	confidence?: number
 }
 
 
