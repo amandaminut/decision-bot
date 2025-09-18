@@ -61,7 +61,6 @@ export async function extractDecisionFromThread(
     ) as OpenAIResponse;
 
     if (confidence !== undefined && confidence < 50) {
-      console.log("Returning error");
       return {
         error:
           "Could not confidently extract decision. Please provide more context.",

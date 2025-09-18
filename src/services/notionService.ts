@@ -25,7 +25,7 @@ export class NotionService {
       auth: apiKey,
     });
 
-    // Test connection and log schema on startup
+    // Test connection on startup
     this.testConnection().catch(console.error);
   }
 
@@ -66,11 +66,31 @@ export class NotionService {
         };
       }
 
-      // Handle tag property (only if it exists)
-      if (database.properties.tag) {
-        properties.tag = {
-          rich_text: [{ text: { content: entry.tag } }],
-        };
+      // Handle tag property (only if it exists) - check both "tag" and "tags"
+      const tagProperty = database.properties.tag || database.properties.tags;
+      if (tagProperty) {
+        const tagPropertyName = database.properties.tag ? "tag" : "tags";
+        
+        if (tagProperty.type === "rich_text") {
+          properties[tagPropertyName] = {
+            rich_text: [{ text: { content: entry.tag } }],
+          };
+        } else if (tagProperty.type === "select") {
+          // Handle select type for tags
+          properties[tagPropertyName] = {
+            select: { name: entry.tag },
+          };
+        } else if (tagProperty.type === "multi_select") {
+          // Handle multi-select type for tags
+          properties[tagPropertyName] = {
+            multi_select: [{ name: entry.tag }],
+          };
+        } else {
+          // Fallback to rich_text
+          properties[tagPropertyName] = {
+            rich_text: [{ text: { content: entry.tag } }],
+          };
+        }
       }
 
       // Handle slack_thread property
@@ -247,11 +267,14 @@ export class NotionService {
 
       const decisions = response.results.map((page: any) => {
         const properties = page.properties;
+        // Check both "tag" and "tags" properties
+        const tagValue = properties.tag?.rich_text?.[0]?.text?.content || 
+                        properties.tags?.rich_text?.[0]?.text?.content || "";
         return {
           id: page.id,
           title: properties.title?.title?.[0]?.text?.content || "",
           summary: properties.summary?.rich_text?.[0]?.text?.content || "",
-          tag: properties.tag?.rich_text?.[0]?.text?.content || "",
+          tag: tagValue,
         };
       });
 
@@ -304,11 +327,31 @@ export class NotionService {
         };
       }
 
-      // Handle tag property
-      if (entry.tag && database.properties.tag) {
-        properties.tag = {
-          rich_text: [{ text: { content: entry.tag } }],
-        };
+      // Handle tag property - check both "tag" and "tags"
+      const tagProperty = database.properties.tag || database.properties.tags;
+      if (entry.tag && tagProperty) {
+        const tagPropertyName = database.properties.tag ? "tag" : "tags";
+        
+        if (tagProperty.type === "rich_text") {
+          properties[tagPropertyName] = {
+            rich_text: [{ text: { content: entry.tag } }],
+          };
+        } else if (tagProperty.type === "select") {
+          // Handle select type for tags
+          properties[tagPropertyName] = {
+            select: { name: entry.tag },
+          };
+        } else if (tagProperty.type === "multi_select") {
+          // Handle multi-select type for tags
+          properties[tagPropertyName] = {
+            multi_select: [{ name: entry.tag }],
+          };
+        } else {
+          // Fallback to rich_text
+          properties[tagPropertyName] = {
+            rich_text: [{ text: { content: entry.tag } }],
+          };
+        }
       }
 
       // Handle slack_thread property
@@ -365,16 +408,16 @@ export class NotionService {
     return `https://www.notion.so/${this.databaseId.replace(/-/g, "")}`;
   }
 
+
   /**
-   * Test the connection to Notion and log database schema
+   * Test the connection to Notion
    * @returns Promise<boolean>
    */
   async testConnection(): Promise<boolean> {
     try {
-      const database = await this.notion.databases.retrieve({
+      await this.notion.databases.retrieve({
         database_id: this.databaseId,
       });
-
       return true;
     } catch (error) {
       console.error("Notion connection test failed:", error);
