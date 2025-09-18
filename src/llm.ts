@@ -1,6 +1,6 @@
 import "dotenv/config";
 import OpenAI from "openai";
-import { DecisionExtraction, OpenAIResponse } from "./types";
+import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse } from "./types";
 import {
   extractTitleFallback,
   extractSummaryFallback,
@@ -172,6 +172,99 @@ Compare the new decision with the existing ones and determine if any are similar
       similar: false,
       similarity_score: 0,
       reason: "Error occurred during comparison",
+    };
+  }
+}
+
+/**
+ * Find related decisions based on thread context and existing decisions
+ * @param threadText - The thread text content
+ * @param existingDecisions - Array of existing decisions from the database
+ * @returns Promise<RelatedDecisionsResponse>
+ */
+export async function findRelatedDecisions(
+  threadText: string,
+  existingDecisions: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    tag: string;
+  }>
+): Promise<RelatedDecisionsResponse> {
+  if (existingDecisions.length === 0) {
+    return {
+      summary: "No existing decisions found in the database.",
+      related_decisions: [],
+    };
+  }
+
+  const system = [
+    "You analyze a Slack thread conversation and find related decisions from a database of existing decisions.",
+    "Return JSON with keys: summary (string describing if related decisions were found and their relevance), and related_decisions (array of objects with id, title, summary).",
+    "The id should be the index position (1-based) of the decision in the provided list.",
+    "Only include decisions that are genuinely related to the conversation topic, technology, or context.",
+    "The summary should explain what related decisions were found and why they are relevant.",
+    "If no related decisions are found, return an empty array and explain why in the summary.",
+  ].join(" ");
+
+  const existingDecisionsText = existingDecisions
+    .map(
+      (decision, index) =>
+        `${index + 1}. Title: ${decision.title}\n   Summary: ${decision.summary}\n   Tag: ${decision.tag}`
+    )
+    .join("\n\n");
+
+  try {
+    const resp = await client.chat.completions.create({
+      model: "openai/gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Slack Thread Conversation:
+${threadText}
+
+Existing Decisions Database:
+${existingDecisionsText}
+
+Analyze the thread conversation and find any related decisions from the database. Consider the topic, technology, context, and any decisions being discussed.`,
+        },
+      ],
+    });
+
+    const content = resp.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No content received from OpenAI");
+    }
+
+    const result = JSON.parse(content) as RelatedDecisionsResponse;
+
+    // Validate the result
+    if (
+      typeof result.summary !== "string" ||
+      !Array.isArray(result.related_decisions)
+    ) {
+      throw new Error("Invalid response format from LLM");
+    }
+
+    // Validate each related decision
+    for (const decision of result.related_decisions) {
+      if (
+        typeof decision.id !== "number" ||
+        typeof decision.title !== "string" ||
+        typeof decision.summary !== "string"
+      ) {
+        throw new Error("Invalid related decision format from LLM");
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error finding related decisions:", error);
+    return {
+      summary: "Error occurred while searching for related decisions.",
+      related_decisions: [],
     };
   }
 }

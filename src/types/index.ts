@@ -68,3 +68,14 @@ export interface NotionOperationResult {
 	page_id?: string
 	error?: string
 }
+
+export interface RelatedDecision {
+	id: number
+	title: string
+	summary: string
+}
+
+export interface RelatedDecisionsResponse {
+	summary: string
+	related_decisions: RelatedDecision[]
+}

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { SlackService } from "../services/slackService";
 import { NotionService } from "../services/notionService";
 import { SlackVerification } from "../middleware/slackVerification";
-import { extractDecisionFromThread, compareDecisionWithExisting } from "../llm";
+import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions } from "../llm";
 import {
   SlackRequestBody,
   ExtendedRequest,
@@ -331,17 +331,57 @@ export class SlackEventsHandler {
     threadUrl: string;
     threadText: string;
   }): Promise<void> {
-    // For now, return a simple static message
-    const message = `📖 Fetch related decisions functionality is coming soon! This will allow you to search and retrieve related decisions from the Notion database.`;
+    try {
+      // Get all existing decisions from the database
+      console.log("Retrieving all decisions from Notion database...");
+      const existingDecisions = await this.notionService.getAllDecisions();
 
-    await this.slackService.apiCall(
-      "chat.postMessage",
-      {
-        channel,
-        thread_ts,
-        text: message,
-      },
-      this.slackService.getBotToken()!
-    );
+      // Find related decisions using AI
+      console.log("Finding related decisions using AI...");
+      const relatedDecisionsResult = await findRelatedDecisions(
+        threadText,
+        existingDecisions
+      );
+
+      // Format the message
+      let message = `🤖 **AI Summary:**\n${relatedDecisionsResult.summary}\n\n`;
+
+      if (relatedDecisionsResult.related_decisions.length > 0) {
+        message += `📋 **Related Decisions:**\n`;
+        relatedDecisionsResult.related_decisions.forEach((decision) => {
+          message += `\n**${decision.id}. ${decision.title}**\n${decision.summary}\n`;
+        });
+      }
+
+      message += `\n[source](${threadUrl})`;
+
+      // Post the message
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: message,
+        },
+        this.slackService.getBotToken()!
+      );
+
+      console.log("Successfully posted related decisions to Slack");
+    } catch (error) {
+      console.error("Error fetching related decisions:", error);
+      
+      // Post error message
+      const errorMessage = `❌ Failed to fetch related decisions: ${error instanceof Error ? error.message : "Unknown error"}`;
+      
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: errorMessage,
+        },
+        this.slackService.getBotToken()!
+      );
+    }
   }
 }
