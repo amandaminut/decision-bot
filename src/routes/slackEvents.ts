@@ -191,12 +191,13 @@ export class SlackEventsHandler {
     }
 
     // Post confirmation message
+    const databaseUrl = this.notionService.getDatabaseUrl();
     const message = notionSuccess
       ? `✅ Decision ${action} in Notion database: *${title}* (Tag: ${tag})${
           comparison.similar
             ? ` (Similarity: ${comparison.similarity_score}%)`
             : ""
-        }`
+        }\n<${databaseUrl}|View here>`
       : `❌ Failed to ${action} decision in Notion database: *${title}*`;
 
     await this.slackService.apiCall(

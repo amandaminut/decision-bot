@@ -358,6 +358,14 @@ export class NotionService {
   }
 
   /**
+   * Get the Notion database URL
+   * @returns string - The URL to the Notion database
+   */
+  getDatabaseUrl(): string {
+    return `https://www.notion.so/${this.databaseId.replace(/-/g, "")}`;
+  }
+
+  /**
    * Test the connection to Notion and log database schema
    * @returns Promise<boolean>
    */
