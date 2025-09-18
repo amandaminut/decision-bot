@@ -33,22 +33,27 @@ export interface ExtendedRequest {
 export interface DecisionExtraction {
 	title: string
 	summary: string
+	tag: string
 }
 
 export interface OpenAIResponse {
 	title?: string
 	summary?: string
+	tag?: string
 }
 
-export interface CanvasOperationResult {
-	created: boolean
-	canvas_id?: string
-}
 
-export interface UpsertCanvasParams {
-	channel: string
+export interface NotionDatabaseEntry {
 	title: string
 	summary: string
-	decidedAt: string
-	thread_ts: string
+	tag: string
+	slack_thread: string
+	slack_channel: string
+	date_timestamp: string
+}
+
+export interface NotionOperationResult {
+	success: boolean
+	page_id?: string
+	error?: string
 }

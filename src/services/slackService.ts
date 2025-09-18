@@ -22,12 +22,14 @@ export class SlackService {
 		method: string,
 		body: Record<string, any>,
 	): Promise<SlackResponse> {
-    const token = this.getUserToken()
+		// Use bot token for chat.postMessage, user token for other methods
+		const token = method === "chat.postMessage" ? this.getBotToken() : this.getUserToken()
 		if (!token) {
 			throw new Error("No token provided")
 		}
 
 		console.log("Making Slack API call:", method)
+		console.log("Using token type:", method === "chat.postMessage" ? "bot" : "user")
 		console.log("Request body:", JSON.stringify(body))
 
 		const res = await fetch(`https://slack.com/api/${method}`, {
@@ -61,6 +63,7 @@ export class SlackService {
 		for (const [k, v] of Object.entries(body)) {
 			form.set(k, String(v))
 		}
+		// Use user token for form calls (like conversations.replies)
 		const token = this.getUserToken()
 		if (!token) {
 			throw new Error("No token provided")

@@ -1,6 +1,6 @@
 import { Request, Response } from "express"
 import { SlackService } from "../services/slackService"
-import { CanvasService } from "../services/canvasService"
+import { NotionService } from "../services/notionService"
 import { SlackVerification } from "../middleware/slackVerification"
 import { extractDecisionFromThread } from "../llm"
 import { SlackRequestBody, ExtendedRequest } from "../types"
@@ -10,12 +10,12 @@ import { SlackRequestBody, ExtendedRequest } from "../types"
  */
 export class SlackEventsHandler {
 	private slackService: SlackService
-	private canvasService: CanvasService
+	private notionService: NotionService
 	private slackVerification: SlackVerification
 
 	constructor() {
 		this.slackService = new SlackService()
-		this.canvasService = new CanvasService(this.slackService)
+		this.notionService = new NotionService()
 		this.slackVerification = new SlackVerification()
 	}
 
@@ -92,33 +92,42 @@ export class SlackEventsHandler {
 		}
 
 		// Extract decision using LLM
-		const { title, summary } = await extractDecisionFromThread(threadText)
-		const decidedAt = new Date().toISOString().slice(0, 16).replace("T", " ")
+		const { title, summary, tag } = await extractDecisionFromThread(threadText)
+		const dateTimestamp = new Date().toISOString()
 
-		// Update canvas
-		let canvasSuccess = false
+		// Add decision to Notion database
+		let notionSuccess = false
 		try {
-			const result = await this.canvasService.upsertChannelCanvas({
-				channel,
+			const result = await this.notionService.addDecision({
 				title,
 				summary,
-				decidedAt,
-				thread_ts,
+				tag,
+				slack_thread: thread_ts,
+				slack_channel: channel,
+				date_timestamp: dateTimestamp,
 			})
-			console.log(
-				`Canvas ${result.created ? "created" : "updated"} successfully`
-			)
-			canvasSuccess = true
-		} catch (canvasError) {
-			console.error("Canvas operation failed:", canvasError)
-			canvasSuccess = false
+			
+			if (result.success) {
+				console.log(`Decision added to Notion successfully with page ID: ${result.page_id}`)
+				notionSuccess = true
+			} else {
+				console.error("Notion operation failed:", result.error)
+				notionSuccess = false
+			}
+		} catch (notionError) {
+			console.error("Notion operation failed:", notionError)
+			notionSuccess = false
 		}
 
 		// Post confirmation message
+		const message = notionSuccess 
+			? `✅ Decision logged to Notion database: *${title}* (Tag: ${tag})`
+			: `❌ Failed to log decision to Notion database: *${title}*`
+			
 		await this.slackService.apiCall("chat.postMessage", {
 			channel,
 			thread_ts,
-			text: `✅ Logged decision to the channel canvas: *${title}*`,
+			text: message,
 		})
 	}
 }

@@ -16,9 +16,11 @@ const client = new OpenAI({
 export async function extractDecisionFromThread(
   threadText: string
 ): Promise<DecisionExtraction> {
+  //TODO: Improve system prompt
   const system = [
     "You extract decisions from Slack threads.",
-    "Return compact JSON with keys: title (<=80 chars) and summary (1–2 sentences).",
+    "Return compact JSON with keys: title (<=80 chars), summary (1–2 sentences), and tag (single descriptive word or short phrase).",
+    "The tag should be a concise category or topic that describes the decision (e.g., 'architecture', 'process', 'tooling', 'policy').",
     "Do not include Markdown, quotes, or emojis in fields.",
   ].join(" ");
 
@@ -43,14 +45,15 @@ export async function extractDecisionFromThread(
       throw new Error("No content received from OpenAI");
     }
 
-    const json = JSON.parse(content) as OpenAIResponse;
+    const { title, summary, tag } = JSON.parse(content) as OpenAIResponse;
 
     // Basic guardrails
     return {
-      title: (json.title || "Decision").slice(0, 80),
-      summary: (json.summary || "Summary unavailable.")
+      title: (title || "Decision").slice(0, 80),
+      summary: (summary || "Summary unavailable.")
         .replace(/\s+/g, " ")
         .trim(),
+      tag: (tag || "general").replace(/\s+/g, " ").trim(),
     };
   } catch (error) {
     console.error("Error extracting decision from thread:", error);
@@ -58,6 +61,7 @@ export async function extractDecisionFromThread(
     return {
       title: extractTitleFallback(threadText),
       summary: extractSummaryFallback(threadText),
+      tag: "general",
     };
   }
 }
