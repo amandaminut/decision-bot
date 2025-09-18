@@ -16,7 +16,7 @@ const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
   defaultHeaders: {
-    "HTTP-Referer": "https://amanda.minut.dev", // Your site URL
+    "HTTP-Referer": process.env.DOMAIN, // Your site URL
     "X-Title": "Decision Bot", // Your site name
   },
 });
