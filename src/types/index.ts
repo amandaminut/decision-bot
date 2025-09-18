@@ -79,3 +79,10 @@ export interface RelatedDecisionsResponse {
 	summary: string
 	related_decisions: RelatedDecision[]
 }
+
+export enum ActionType {
+	CREATE = "create",
+	UPDATE = "update", 
+	READ = "read",
+	NONE_APPLICABLE = "none_applicable"
+}

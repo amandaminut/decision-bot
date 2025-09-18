@@ -1,6 +1,6 @@
 import "dotenv/config";
 import OpenAI from "openai";
-import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse } from "./types";
+import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse, ActionType } from "./types";
 import {
   extractTitleFallback,
   extractSummaryFallback,
@@ -266,5 +266,76 @@ Analyze the thread conversation and find any related decisions from the database
       summary: "Error occurred while searching for related decisions.",
       related_decisions: [],
     };
+  }
+}
+
+/**
+ * Analyze a message to determine the user's intent for decision management
+ * @param messageText - The message text to analyze
+ * @returns Promise<ActionType> - The determined action type
+ */
+export async function analyzeMessageIntent(messageText: string): Promise<ActionType> {
+  const system = [
+    "You analyze Slack messages to determine the user's intent for decision management.",
+    "Return one of these exact enum values: 'create', 'update', 'read', or 'none_applicable'.",
+    "",
+    "Use 'create' when the user wants to:",
+    "- Log a new decision to the database",
+    "- Record a decision that was made",
+    "- Save a decision for future reference",
+    "- Document a decision from a discussion",
+    "",
+    "Use 'update' when the user wants to:",
+    "- Modify an existing decision",
+    "- Change details of a previously recorded decision",
+    "- Update information about a decision",
+    "",
+    "Use 'read' when the user wants to:",
+    "- Find related decisions",
+    "- Search for existing decisions",
+    "- See what decisions are in the database",
+    "- Look up previous decisions on a topic",
+    "",
+    "Use 'none_applicable' when:",
+    "- The user doesn't want to create, update, or read decisions",
+    "- The message is not about decision management",
+    "- The user is asking general questions not related to decisions",
+    "- The user explicitly says they don't want to log anything",
+    "",
+    "Consider the context and intent, not just keywords. A user might say 'we decided to use React' which should be 'create', not 'read'."
+  ].join("\n");
+
+  try {
+    const resp = await client.chat.completions.create({
+      model: "openai/gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Analyze this message and determine the user's intent:\n\n"${messageText}"\n\nReturn only the action type as a JSON object with key "action".`
+        },
+      ],
+    });
+
+    const content = resp.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No content received from OpenAI");
+    }
+
+    const result = JSON.parse(content) as { action: string };
+    
+    // Validate the action is one of our enum values
+    const validActions = Object.values(ActionType);
+    if (!validActions.includes(result.action as ActionType)) {
+      console.warn(`Invalid action received: ${result.action}, defaulting to none_applicable`);
+      return ActionType.NONE_APPLICABLE;
+    }
+
+    return result.action as ActionType;
+  } catch (error) {
+    console.error("Error analyzing message intent:", error);
+    // Default to none_applicable on error to avoid unwanted actions
+    return ActionType.NONE_APPLICABLE;
   }
 }

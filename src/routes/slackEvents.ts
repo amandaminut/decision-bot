@@ -2,11 +2,12 @@ import { Request, Response } from "express";
 import { SlackService } from "../services/slackService";
 import { NotionService } from "../services/notionService";
 import { SlackVerification } from "../middleware/slackVerification";
-import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions } from "../llm";
+import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions, analyzeMessageIntent } from "../llm";
 import {
   SlackRequestBody,
   ExtendedRequest,
   DecisionExtraction,
+  ActionType,
 } from "../types";
 
 /**
@@ -116,44 +117,59 @@ export class SlackEventsHandler {
       threadText = evt.text;
     }
 
-    // Route based on message content
+    // Analyze message intent using AI
     const begin = threadText.indexOf(">") + 2;
-    const messageText = threadText.toLowerCase().substring(begin, threadText.length).trim();
+    const messageText = threadText.substring(begin, threadText.length).trim();
     console.log("Message text:", messageText);
 
-    if (messageText.startsWith("create")) {
-      await this.createNewDecision({
-        channel,
-        thread_ts,
-        channelName,
-        threadUrl,
-        threadText,
-      });
-    } else if (messageText.startsWith("update")) {
-      await this.updateDecision({
-        channel,
-        thread_ts,
-        channelName,
-        threadUrl,
-        threadText,
-      });
-    } else if (messageText.startsWith("read")) {
-      await this.fetchRelatedDecisions({
-        channel,
-        thread_ts,
-        channelName,
-        threadUrl,
-        threadText,
-      });
-    } else {
-      // Default to create behavior for backward compatibility
-      await this.createNewDecision({
-        channel,
-        thread_ts,
-        channelName,
-        threadUrl,
-        threadText,
-      });
+    const actionType = await analyzeMessageIntent(messageText);
+    console.log("Analyzed action type:", actionType);
+
+    switch (actionType) {
+      case ActionType.CREATE:
+        await this.createNewDecision({
+          channel,
+          thread_ts,
+          channelName,
+          threadUrl,
+          threadText,
+        });
+        break;
+      case ActionType.UPDATE:
+        await this.updateDecision({
+          channel,
+          thread_ts,
+          channelName,
+          threadUrl,
+          threadText,
+        });
+        break;
+      case ActionType.READ:
+        await this.fetchRelatedDecisions({
+          channel,
+          thread_ts,
+          channelName,
+          threadUrl,
+          threadText,
+        });
+        break;
+      case ActionType.NONE_APPLICABLE:
+        // Post a message indicating no action was taken
+        const message = `🤖 I analyzed your message but didn't detect any intent to create, update, or read decisions. If you'd like to log a decision, please mention what decision was made.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        break;
+      default:
+        console.warn(`Unknown action type: ${actionType}`);
+        break;
     }
   }
 
@@ -343,17 +359,17 @@ export class SlackEventsHandler {
         existingDecisions
       );
 
-      // Format the message
-      let message = `🤖 **AI Summary:**\n${relatedDecisionsResult.summary}\n\n`;
+      // Format the message using Slack's native formatting
+      let message = "";
 
       if (relatedDecisionsResult.related_decisions.length > 0) {
-        message += `📋 **Related Decisions:**\n`;
+        message += `📋 *Related Decisions:*\n`;
         relatedDecisionsResult.related_decisions.forEach((decision) => {
-          message += `\n**${decision.id}. ${decision.title}**\n${decision.summary}\n`;
+          message += `\n*${decision.id}. ${decision.title}*\n${decision.summary}\n`;
         });
       }
 
-      message += `\n[source](${threadUrl})`;
+      message += `\n<${threadUrl}|source>`;
 
       // Post the message
       await this.slackService.apiCall(
