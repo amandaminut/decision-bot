@@ -1,6 +1,6 @@
 import "dotenv/config";
 import OpenAI from "openai";
-import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse, ActionType } from "./types";
+import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse, ActionType, DecisionUpdateAnalysis } from "./types";
 import {
   extractTitleFallback,
   extractSummaryFallback,
@@ -336,5 +336,103 @@ export async function analyzeMessageIntent(messageText: string): Promise<ActionT
     console.error("Error analyzing message intent:", error);
     // Default to none_applicable on error to avoid unwanted actions
     return ActionType.NONE_APPLICABLE;
+  }
+}
+
+/**
+ * Analyze a thread with related decisions to determine which decision should be updated
+ * @param threadText - The thread text content
+ * @param relatedDecisions - Array of related decisions from the database
+ * @returns Promise<DecisionUpdateAnalysis | { error: string }>
+ */
+export async function analyzeDecisionUpdate(
+  threadText: string,
+  relatedDecisions: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    tag: string;
+  }>
+): Promise<DecisionUpdateAnalysis | { error: string }> {
+  if (relatedDecisions.length === 0) {
+    return {
+      error: "No related decisions found to update. Please create a new decision instead."
+    };
+  }
+
+  const system = [
+    "You analyze a Slack thread conversation and determine which existing decision should be updated based on the new information.",
+    "Return JSON with keys: decision_id (string), updated_title (optional string), updated_summary (optional string), updated_tag (optional string), reason (string explaining why this decision was chosen), and confidence (0-100).",
+    "Only provide updated fields if they should be changed based on the new thread content.",
+    "The decision_id should be the exact ID from the provided decisions list.",
+    "The reason should explain why this specific decision was chosen for update and what changes are being made.",
+    "The confidence should reflect how certain you are that this is the correct decision to update.",
+    "If no decision should be updated, return an error message.",
+    "Consider the context, topic, and scope of the conversation when determining which decision to update."
+  ].join(" ");
+
+  const relatedDecisionsText = relatedDecisions
+    .map(
+      (decision) =>
+        `ID: ${decision.id}\nTitle: ${decision.title}\nSummary: ${decision.summary}\nTag: ${decision.tag}`
+    )
+    .join("\n\n");
+
+  try {
+    const resp = await client.chat.completions.create({
+      model: "openai/gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Slack Thread Conversation:
+${threadText}
+
+Related Decisions:
+${relatedDecisionsText}
+
+Analyze the thread and determine which decision should be updated with new information. Provide the updated fields and explain your reasoning.`
+        },
+      ],
+    });
+
+    const content = resp.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No content received from OpenAI");
+    }
+
+    const result = JSON.parse(content) as DecisionUpdateAnalysis;
+
+    // Validate the result
+    if (
+      typeof result.decision_id !== "string" ||
+      typeof result.reason !== "string" ||
+      typeof result.confidence !== "number"
+    ) {
+      throw new Error("Invalid response format from LLM");
+    }
+
+    // Validate that the decision_id exists in our related decisions
+    const decisionExists = relatedDecisions.some(decision => decision.id === result.decision_id);
+    if (!decisionExists) {
+      return {
+        error: `Decision ID ${result.decision_id} not found in related decisions.`
+      };
+    }
+
+    // Check confidence threshold
+    if (result.confidence < 60) {
+      return {
+        error: `Low confidence (${result.confidence}%) in decision update. Please provide more specific information.`
+      };
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error analyzing decision update:", error);
+    return {
+      error: "Error occurred while analyzing which decision to update."
+    };
   }
 }

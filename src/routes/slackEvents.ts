@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { SlackService } from "../services/slackService";
 import { NotionService } from "../services/notionService";
 import { SlackVerification } from "../middleware/slackVerification";
-import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions, analyzeMessageIntent } from "../llm";
+import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions, analyzeMessageIntent, analyzeDecisionUpdate } from "../llm";
 import {
   SlackRequestBody,
   ExtendedRequest,
@@ -272,11 +272,11 @@ export class SlackEventsHandler {
     // Post confirmation message
     const databaseUrl = this.notionService.getDatabaseUrl();
     const message = notionSuccess
-      ? `✅ Decision ${action} in Notion database: *${title}* (Tag: ${tag})${comparison.similar
+      ? `✅ Decision ${action}: *${title}* (Tag: ${tag})${comparison.similar
         ? ` (Similarity: ${comparison.similarity_score}%)`
         : ""
       }\n<${databaseUrl}|View here>`
-      : `❌ Failed to ${action} decision in Notion database: *${title}*`;
+      : `❌ Failed to ${action} decision: *${title}*`;
 
     await this.slackService.apiCall(
       "chat.postMessage",
@@ -311,18 +311,160 @@ export class SlackEventsHandler {
     threadUrl: string;
     threadText: string;
   }): Promise<void> {
-    // For now, return a simple static message
-    const message = `🔄 Update decision functionality is coming soon! This will allow you to modify existing decisions in the Notion database.`;
+    try {
+      // Get all existing decisions from the database
+      console.log("Retrieving all decisions from Notion database...");
+      const existingDecisions = await this.notionService.getAllDecisions();
 
-    await this.slackService.apiCall(
-      "chat.postMessage",
-      {
-        channel,
-        thread_ts,
-        text: message,
-      },
-      this.slackService.getBotToken()!
-    );
+      if (existingDecisions.length === 0) {
+        const message = `❌ No decisions found in the database to update. Please create a decision first.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Find related decisions using AI (reuse the read flow logic)
+      console.log("Finding related decisions using AI...");
+      const relatedDecisionsResult = await findRelatedDecisions(
+        threadText,
+        existingDecisions
+      );
+
+      if (relatedDecisionsResult.related_decisions.length === 0) {
+        const message = `❌ No related decisions found to update. The thread doesn't seem to relate to any existing decisions in the database.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Convert the related decisions to the format expected by analyzeDecisionUpdate
+      // The decision.id from findRelatedDecisions is a 1-based index, so we need to map it to the actual Notion page ID
+      const relatedDecisionsForUpdate = relatedDecisionsResult.related_decisions.map(decision => {
+        // decision.id is 1-based index, so we need to get the actual decision from existingDecisions
+        const decisionIndex = decision.id - 1; // Convert to 0-based index
+        const existingDecision = existingDecisions[decisionIndex];
+        
+        if (!existingDecision) {
+          console.warn(`Decision at index ${decisionIndex} not found in existing decisions`);
+          return null;
+        }
+        
+        return {
+          id: existingDecision.id, // Use the actual Notion page ID
+          title: decision.title,
+          summary: decision.summary,
+          tag: existingDecision.tag
+        };
+      }).filter(decision => decision !== null); // Remove any null entries
+
+      if (relatedDecisionsForUpdate.length === 0) {
+        const message = `❌ Failed to map related decisions to valid Notion page IDs.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Analyze which decision should be updated and what changes to make
+      console.log("Analyzing which decision to update...");
+      const updateAnalysis = await analyzeDecisionUpdate(threadText, relatedDecisionsForUpdate);
+
+      if ("error" in updateAnalysis) {
+        const message = `❌ Failed to analyze decision update: *${updateAnalysis.error}*`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Prepare the update data
+      const updateData: any = {
+        slack_thread: threadUrl,
+        slack_channel: channelName,
+        date_timestamp: new Date().toISOString(),
+      };
+
+      // Add only the fields that should be updated
+      if (updateAnalysis.updated_title) {
+        updateData.title = updateAnalysis.updated_title;
+      }
+      if (updateAnalysis.updated_summary) {
+        updateData.summary = updateAnalysis.updated_summary;
+      }
+      if (updateAnalysis.updated_tag) {
+        updateData.tag = updateAnalysis.updated_tag;
+      }
+
+      // Update the decision in Notion
+      console.log(`Updating decision ${updateAnalysis.decision_id}...`);
+      const updateResult = await this.notionService.updateDecision(
+        updateAnalysis.decision_id,
+        updateData
+      );
+
+      // Post confirmation message
+      const databaseUrl = this.notionService.getDatabaseUrl();
+      const message = updateResult.success
+        ? `✅ Decision updated successfully!\n\n<${databaseUrl}|View in Notion>`
+        : `❌ Failed to update decision: *${updateResult.error}*`;
+
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: message,
+        },
+        this.slackService.getBotToken()!
+      );
+
+      console.log("Successfully updated decision in Notion database");
+    } catch (error) {
+      console.error("Error updating decision:", error);
+      
+      // Post error message
+      const errorMessage = `❌ Failed to update decision: ${error instanceof Error ? error.message : "Unknown error"}`;
+      
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: errorMessage,
+        },
+        this.slackService.getBotToken()!
+      );
+    }
   }
 
   /**

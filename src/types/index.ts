@@ -80,6 +80,15 @@ export interface RelatedDecisionsResponse {
 	related_decisions: RelatedDecision[]
 }
 
+export interface DecisionUpdateAnalysis {
+	decision_id: string
+	updated_title?: string
+	updated_summary?: string
+	updated_tag?: string
+	reason: string
+	confidence: number
+}
+
 export enum ActionType {
 	CREATE = "create",
 	UPDATE = "update", 
