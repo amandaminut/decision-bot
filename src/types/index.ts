@@ -89,9 +89,19 @@ export interface DecisionUpdateAnalysis {
 	confidence: number
 }
 
+export interface PendingDeletion {
+	decision_id: string
+	title: string
+	summary: string
+	thread_ts: string
+	channel: string
+	timestamp: number
+}
+
 export enum ActionType {
 	CREATE = "create",
 	UPDATE = "update", 
 	READ = "read",
+	DELETE = "delete",
 	NONE_APPLICABLE = "none_applicable"
 }

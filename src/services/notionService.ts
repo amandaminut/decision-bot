@@ -410,6 +410,34 @@ export class NotionService {
 
 
   /**
+   * Delete a decision from the Notion database
+   * @param pageId - The ID of the page to delete
+   * @returns Promise<NotionOperationResult>
+   */
+  async deleteDecision(pageId: string): Promise<NotionOperationResult> {
+    try {
+      const response = await this.notion.pages.update({
+        page_id: pageId,
+        archived: true, // Archive the page instead of permanently deleting
+      });
+
+      console.log("✅ Decision archived successfully in Notion database");
+      console.log("🆔 Archived page ID:", response.id);
+
+      return {
+        success: true,
+        page_id: response.id,
+      };
+    } catch (error) {
+      console.error("Error archiving decision in Notion:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  /**
    * Test the connection to Notion
    * @returns Promise<boolean>
    */

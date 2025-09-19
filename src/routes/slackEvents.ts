@@ -8,6 +8,7 @@ import {
   ExtendedRequest,
   DecisionExtraction,
   ActionType,
+  PendingDeletion,
 } from "../types";
 
 /**
@@ -17,11 +18,13 @@ export class SlackEventsHandler {
   private slackService: SlackService;
   private notionService: NotionService;
   private slackVerification: SlackVerification;
+  private pendingDeletions: Map<string, PendingDeletion>;
 
   constructor() {
     this.slackService = new SlackService();
     this.notionService = new NotionService();
     this.slackVerification = new SlackVerification();
+    this.pendingDeletions = new Map();
   }
 
   /**
@@ -153,6 +156,16 @@ export class SlackEventsHandler {
           threadText,
         });
         break;
+      case ActionType.DELETE:
+        await this.deleteDecision({
+          channel,
+          thread_ts,
+          channelName,
+          threadUrl,
+          threadText,
+          eventText: evt.text,
+        });
+        break;
       case ActionType.NONE_APPLICABLE:
         // Post a message indicating no action was taken
         const message = `🤖 I analyzed your message but didn't detect any intent to create, update, or read decisions. If you'd like to log a decision, please mention what decision was made.`;
@@ -272,7 +285,7 @@ export class SlackEventsHandler {
     // Post confirmation message
     const databaseUrl = this.notionService.getDatabaseUrl();
     const message = notionSuccess
-      ? `✅ Decision ${action}: *${title}* (Tag: ${tag})${comparison.similar
+      ? `✅ Decision ${action}: *${title}*${comparison.similar
         ? ` (Similarity: ${comparison.similarity_score}%)`
         : ""
       }\n<${databaseUrl}|View here>`
@@ -454,6 +467,221 @@ export class SlackEventsHandler {
       
       // Post error message
       const errorMessage = `❌ Failed to update decision: ${error instanceof Error ? error.message : "Unknown error"}`;
+      
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: errorMessage,
+        },
+        this.slackService.getBotToken()!
+      );
+    }
+  }
+
+  /**
+   * Delete a decision from the Notion database with confirmation
+   * @param params - Parameters for deleting a decision
+   * @param params.channel - Slack channel ID
+   * @param params.thread_ts - Slack thread timestamp
+   * @param params.channelName - Slack channel name
+   * @param params.threadUrl - Slack thread URL
+   * @param params.threadText - Thread text content
+   * @param params.eventText - Current event text content
+   */
+  private async deleteDecision({
+    channel,
+    thread_ts,
+    channelName,
+    threadUrl,
+    threadText,
+    eventText,
+  }: {
+    channel: string;
+    thread_ts: string;
+    channelName: string;
+    threadUrl: string;
+    threadText: string;
+    eventText: string;
+  }): Promise<void> {
+    try {
+      // Check if there's a pending deletion for this thread
+      const pendingDeletionKey = `${channel}-${thread_ts}`;
+      const pendingDeletion = this.pendingDeletions.get(pendingDeletionKey);
+
+      if (pendingDeletion) {
+        // Check if the message is a confirmation
+        // Extract just the latest message text (remove the @bot mention)
+        const messageText = eventText.substring(eventText.indexOf(">") + 2).trim().toLowerCase();
+        console.log("Confirmation message text:", messageText);
+        
+        if (messageText.includes("yes") || messageText.includes("confirm") || messageText.includes("delete")) {
+          // User confirmed deletion
+          console.log(`Deleting decision ${pendingDeletion.decision_id}...`);
+          const deleteResult = await this.notionService.deleteDecision(pendingDeletion.decision_id);
+
+          // Remove from pending deletions
+          this.pendingDeletions.delete(pendingDeletionKey);
+
+          // Post confirmation message
+          const message = deleteResult.success
+            ? `✅ Decision deleted successfully!\n\n*Deleted Decision:* ${pendingDeletion.title}\n*Summary:* ${pendingDeletion.summary}`
+            : `❌ Failed to delete decision: *${deleteResult.error}*`;
+
+          await this.slackService.apiCall(
+            "chat.postMessage",
+            {
+              channel,
+              thread_ts,
+              text: message,
+            },
+            this.slackService.getBotToken()!
+          );
+
+          console.log("Successfully deleted decision from Notion database");
+          return;
+        } else if (messageText.includes("no") || messageText.includes("cancel") || messageText.includes("abort")) {
+          // User cancelled deletion
+          console.log("User cancelled deletion");
+          this.pendingDeletions.delete(pendingDeletionKey);
+          
+          const message = `❌ Decision deletion cancelled. The decision "${pendingDeletion.title}" was not deleted.`;
+          
+          await this.slackService.apiCall(
+            "chat.postMessage",
+            {
+              channel,
+              thread_ts,
+              text: message,
+            },
+            this.slackService.getBotToken()!
+          );
+          return;
+        } else {
+          // User sent another message, remind them about the pending deletion
+          const message = `⚠️ You have a pending deletion for: *${pendingDeletion.title}*\n\nPlease reply with "yes" to confirm deletion or "no" to cancel.`;
+          
+          await this.slackService.apiCall(
+            "chat.postMessage",
+            {
+              channel,
+              thread_ts,
+              text: message,
+            },
+            this.slackService.getBotToken()!
+          );
+          return;
+        }
+      }
+
+      // No pending deletion, find the decision to delete
+      console.log("Retrieving all decisions from Notion database...");
+      const existingDecisions = await this.notionService.getAllDecisions();
+
+      if (existingDecisions.length === 0) {
+        const message = `❌ No decisions found in the database to delete.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Find related decisions using AI (reuse the read flow logic)
+      console.log("Finding related decisions to delete using AI...");
+      const relatedDecisionsResult = await findRelatedDecisions(
+        threadText,
+        existingDecisions
+      );
+
+      if (relatedDecisionsResult.related_decisions.length === 0) {
+        const message = `❌ No related decisions found to delete. The thread doesn't seem to relate to any existing decisions in the database.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      if (relatedDecisionsResult.related_decisions.length > 1) {
+        const message = `❌ Multiple related decisions found. Please be more specific about which decision you want to delete.\n\nRelated decisions:\n${relatedDecisionsResult.related_decisions.map(d => `• ${d.title}`).join('\n')}`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Get the decision to delete
+      const decisionToDelete = relatedDecisionsResult.related_decisions[0];
+      const decisionIndex = decisionToDelete.id - 1; // Convert to 0-based index
+      const existingDecision = existingDecisions[decisionIndex];
+
+      if (!existingDecision) {
+        const message = `❌ Decision not found in database.`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Store pending deletion
+      const pendingDeletionData: PendingDeletion = {
+        decision_id: existingDecision.id,
+        title: existingDecision.title,
+        summary: existingDecision.summary,
+        thread_ts,
+        channel,
+        timestamp: Date.now(),
+      };
+
+      this.pendingDeletions.set(pendingDeletionKey, pendingDeletionData);
+
+      // Ask for confirmation
+      const message = `⚠️ Are you sure you want to delete this decision?\n\n*Decision:* ${existingDecision.title}\n*Summary:* ${existingDecision.summary}\n*Tag:* ${existingDecision.tag}\n\nReply with "yes" to confirm deletion or "no" to cancel.`;
+      
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: message,
+        },
+        this.slackService.getBotToken()!
+      );
+
+      console.log(`Pending deletion created for decision: ${existingDecision.title}`);
+    } catch (error) {
+      console.error("Error deleting decision:", error);
+      
+      // Post error message
+      const errorMessage = `❌ Failed to delete decision: ${error instanceof Error ? error.message : "Unknown error"}`;
       
       await this.slackService.apiCall(
         "chat.postMessage",
