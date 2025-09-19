@@ -1,6 +1,6 @@
 import "dotenv/config";
 import OpenAI from "openai";
-import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse, ActionType, DecisionUpdateAnalysis } from "./types";
+import { DecisionExtraction, OpenAIResponse, RelatedDecisionsResponse, ActionType, DecisionUpdateAnalysis, ThreadSummaryResponse } from "./types";
 import {
   extractTitleFallback,
   extractSummaryFallback,
@@ -38,7 +38,7 @@ export async function extractDecisionFromThread(
   try {
     // Chat Completions with JSON output (simple & reliable)
     const resp = await client.chat.completions.create({
-      model: "openai/gpt-4o-mini",
+      model: "openai/gpt-5-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -215,7 +215,7 @@ export async function findRelatedDecisions(
 
   try {
     const resp = await client.chat.completions.create({
-      model: "openai/gpt-4o-mini",
+      model: "openai/gpt-5-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -276,7 +276,7 @@ Analyze the thread conversation and find any related decisions from the database
 export async function analyzeMessageIntent(messageText: string): Promise<ActionType> {
   const system = [
     "You analyze Slack messages to determine the user's intent for decision management.",
-    "Return one of these exact enum values: 'create', 'update', 'read', 'delete', or 'none_applicable'.",
+    "Return one of these exact enum values: 'create', 'update', 'read', 'delete', 'summary', or 'none_applicable'.",
     "",
     "Use 'create' when the user wants to:",
     "- Log a new decision to the database",
@@ -301,6 +301,13 @@ export async function analyzeMessageIntent(messageText: string): Promise<ActionT
     "- Remove a previously recorded decision",
     "- Get rid of a decision entry",
     "",
+    "Use 'summary' when the user wants to:",
+    "- Get a summary of the thread discussion",
+    "- Summarize what was discussed in the thread",
+    "- Get an overview of the conversation results",
+    "- See a recap of the thread",
+    "- Get a summary of decisions and outcomes",
+    "",
     "Use 'none_applicable' when:",
     "- The user doesn't want to create, update, read, or delete decisions",
     "- The message is not about decision management",
@@ -312,7 +319,7 @@ export async function analyzeMessageIntent(messageText: string): Promise<ActionT
 
   try {
     const resp = await client.chat.completions.create({
-      model: "openai/gpt-4o-mini",
+      model: "openai/gpt-5-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -386,7 +393,7 @@ export async function analyzeDecisionUpdate(
 
   try {
     const resp = await client.chat.completions.create({
-      model: "openai/gpt-4o-mini",
+      model: "openai/gpt-5-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -439,6 +446,91 @@ Analyze the thread and determine which decision should be updated with new infor
     console.error("Error analyzing decision update:", error);
     return {
       error: "Error occurred while analyzing which decision to update."
+    };
+  }
+}
+
+/**
+ * Summarize the result of a Slack thread conversation
+ * @param threadText - The thread text content
+ * @returns Promise<ThreadSummaryResponse | { error: string }>
+ */
+export async function summarizeThreadResult(
+  threadText: string
+): Promise<ThreadSummaryResponse | { error: string }> {
+  const system = [
+    "You analyze Slack thread conversations and provide comprehensive summaries of the discussion results.",
+    "Return JSON with keys: summary (string - overall summary of the thread), open_points (array of strings - topics discussed but not decided), decisions_made (array of strings - any decisions that were made), next_steps (array of strings - any follow-up actions or next steps mentioned), and confidence (0-100 - confidence in the summary accuracy).",
+    "The summary should be a concise but comprehensive overview of what was discussed and concluded.",
+    "The summary should be no more than 100 words.",
+    "The open points should be no more than 4 items.",
+    "Open points should capture topics, issues, or considerations that were discussed but did not result in a clear decision or conclusion.",
+    "Decisions made should list any concrete decisions, choices, or conclusions reached.",
+    "Next steps should include any action items, follow-ups, or future work mentioned.",
+    "Keep all text concise and actionable. Avoid redundancy between sections.",
+    "The confidence should reflect how clear and conclusive the thread discussion was."
+  ].join(" ");
+
+  try {
+    const resp = await client.chat.completions.create({
+      model: "openai/gpt-5-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Analyze this Slack thread conversation and provide a comprehensive summary of the results:\n\nThread:\n${threadText}`
+        },
+      ],
+    });
+
+    const content = resp.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No content received from OpenAI");
+    }
+
+    const result = JSON.parse(content) as ThreadSummaryResponse;
+
+    // Validate the result
+    if (
+      typeof result.summary !== "string" ||
+      !Array.isArray(result.open_points) ||
+      !Array.isArray(result.decisions_made) ||
+      !Array.isArray(result.next_steps) ||
+      typeof result.confidence !== "number"
+    ) {
+      throw new Error("Invalid response format from LLM");
+    }
+
+    // Validate array contents
+    for (const point of result.open_points) {
+      if (typeof point !== "string") {
+        throw new Error("Invalid open_points format from LLM");
+      }
+    }
+    for (const decision of result.decisions_made) {
+      if (typeof decision !== "string") {
+        throw new Error("Invalid decisions_made format from LLM");
+      }
+    }
+    for (const step of result.next_steps) {
+      if (typeof step !== "string") {
+        throw new Error("Invalid next_steps format from LLM");
+      }
+    }
+
+    // Check confidence threshold
+    if (result.confidence < 30) {
+      return {
+        error: "Thread content is too unclear or incomplete to provide a reliable summary."
+      };
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error summarizing thread result:", error);
+    return {
+      error: "Error occurred while summarizing the thread conversation."
     };
   }
 }

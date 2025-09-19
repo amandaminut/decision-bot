@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { SlackService } from "../services/slackService";
 import { NotionService } from "../services/notionService";
 import { SlackVerification } from "../middleware/slackVerification";
-import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions, analyzeMessageIntent, analyzeDecisionUpdate } from "../llm";
+import { extractDecisionFromThread, compareDecisionWithExisting, findRelatedDecisions, analyzeMessageIntent, analyzeDecisionUpdate, summarizeThreadResult } from "../llm";
 import {
   SlackRequestBody,
   ExtendedRequest,
@@ -166,9 +166,18 @@ export class SlackEventsHandler {
           eventText: evt.text,
         });
         break;
+      case ActionType.SUMMARY:
+        await this.summarizeThreadResult({
+          channel,
+          thread_ts,
+          channelName,
+          threadUrl,
+          threadText,
+        });
+        break;
       case ActionType.NONE_APPLICABLE:
         // Post a message indicating no action was taken
-        const message = `🤖 I analyzed your message but didn't detect any intent to create, update, or read decisions. If you'd like to log a decision, please mention what decision was made.`;
+        const message = `🤖 I analyzed your message but didn't detect any intent to create, update, read, delete, or summarize decisions. If you'd like to log a decision or get a summary, please be more specific about what you'd like me to do.`;
         
         await this.slackService.apiCall(
           "chat.postMessage",
@@ -758,6 +767,109 @@ export class SlackEventsHandler {
       
       // Post error message
       const errorMessage = `❌ Failed to fetch related decisions: ${error instanceof Error ? error.message : "Unknown error"}`;
+      
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: errorMessage,
+        },
+        this.slackService.getBotToken()!
+      );
+    }
+  }
+
+  /**
+   * Summarize the result of a Slack thread conversation
+   * @param params - Parameters for summarizing thread results
+   * @param params.channel - Slack channel ID
+   * @param params.thread_ts - Slack thread timestamp
+   * @param params.channelName - Slack channel name
+   * @param params.threadUrl - Slack thread URL
+   * @param params.threadText - Thread text content
+   */
+  private async summarizeThreadResult({
+    channel,
+    thread_ts,
+    channelName,
+    threadUrl,
+    threadText,
+  }: {
+    channel: string;
+    thread_ts: string;
+    channelName: string;
+    threadUrl: string;
+    threadText: string;
+  }): Promise<void> {
+    try {
+      // Generate thread summary using LLM
+      console.log("Generating thread summary...");
+      const summaryResult = await summarizeThreadResult(threadText);
+
+      if ("error" in summaryResult) {
+        const message = `❌ Failed to generate thread summary: *${summaryResult.error}*`;
+        
+        await this.slackService.apiCall(
+          "chat.postMessage",
+          {
+            channel,
+            thread_ts,
+            text: message,
+          },
+          this.slackService.getBotToken()!
+        );
+        return;
+      }
+
+      // Format the summary message using Slack's native formatting
+      let message = `📋 *Thread Summary*\n\n`;
+      message += `*Overview:* ${summaryResult.summary}\n\n`;
+
+      if (summaryResult.open_points.length > 0) {
+        message += `*Open Points:*\n`;
+        summaryResult.open_points.forEach((point, index) => {
+          message += `${index + 1}. ${point}\n`;
+        });
+        message += `\n`;
+      }
+
+      if (summaryResult.decisions_made.length > 0) {
+        message += `*Decisions Made:*\n`;
+        summaryResult.decisions_made.forEach((decision, index) => {
+          message += `${index + 1}. ${decision}\n`;
+        });
+        message += `\n`;
+      }
+
+      if (summaryResult.next_steps.length > 0) {
+        message += `*Next Steps:*\n`;
+        summaryResult.next_steps.forEach((step, index) => {
+          message += `${index + 1}. ${step}\n`;
+        });
+        message += `\n`;
+      }
+
+      // message += `*Confidence:* ${summaryResult.confidence}%\n`;
+      message += `\n<${threadUrl}|View original thread>`;
+
+      // Post the summary message
+      await this.slackService.apiCall(
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts,
+          text: message,
+        },
+        this.slackService.getBotToken()!
+      );
+
+      console.log("Successfully posted thread summary to Slack");
+    } catch (error) {
+      console.error("Error summarizing thread result:", error);
+      
+      // Post error message
+      const errorMessage = `❌ Failed to summarize thread: ${error instanceof Error ? error.message : "Unknown error"}`;
       
       await this.slackService.apiCall(
         "chat.postMessage",

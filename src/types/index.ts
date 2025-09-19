@@ -98,10 +98,19 @@ export interface PendingDeletion {
 	timestamp: number
 }
 
+export interface ThreadSummaryResponse {
+	summary: string
+	open_points: string[]
+	decisions_made: string[]
+	next_steps: string[]
+	confidence: number
+}
+
 export enum ActionType {
 	CREATE = "create",
 	UPDATE = "update", 
 	READ = "read",
 	DELETE = "delete",
+	SUMMARY = "summary",
 	NONE_APPLICABLE = "none_applicable"
 }
