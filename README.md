@@ -1,13 +1,14 @@
 # Decision Bot
 
-A Slack bot that automatically extracts and logs decisions from thread discussions using AI to a Notion database.
+A Slack bot that automatically manages decisions from thread discussions using AI and integrates with a Notion database. The bot can create, update, delete, and summarize decisions based on natural language commands.
 
 ## How It Works
 
-1. **Someone tags the bot** in a Slack thread
-2. **Bot gets the thread** and reads all messages in the conversation
-3. **Bot summarizes using ChatGPT** to extract the key decision with title, summary, and tag
-4. **Bot saves the decision to a Notion database** with all relevant information
+1. **Someone tags the bot** in a Slack thread with their intent
+2. **Bot analyzes the message** to determine what action to take (create, update, delete, or summarize)
+3. **Bot processes the thread** and reads all messages in the conversation
+4. **Bot uses AI** to extract information, make comparisons, or generate summaries
+5. **Bot performs the requested action** (saves to Notion, updates existing decisions, deletes decisions, or provides summaries)
 
 ## Setup
 
@@ -87,21 +88,103 @@ npm start
 
 ## Usage
 
-1. Start a discussion in any Slack channel
-2. Tag your bot: `@your-bot-name`
-3. The bot will:
-   - Read the entire thread
-   - Use AI to extract the decision with title, summary, and tag
-   - Save the decision to your Notion database
-   - Confirm in the thread with success/failure status
+The bot supports four main actions based on natural language commands:
+
+### 1. Create Decision
+Tag the bot and mention a decision that was made:
+```
+@your-bot-name We decided to use React for the frontend
+@your-bot-name Decision: We're going with microservices architecture
+```
+
+### 2. Update Decision
+Tag the bot to update an existing decision:
+```
+@your-bot-name Update the React decision - we're now using Next.js instead
+@your-bot-name The microservices decision needs updating
+```
+
+### 3. Delete Decision
+Tag the bot to remove a decision from the database:
+```
+@your-bot-name Delete the React decision
+@your-bot-name Remove the microservices architecture decision
+```
+
+**Note**: Delete operations require confirmation. The bot will:
+1. Find the decision you want to delete
+2. Show you the decision details
+3. Ask for confirmation (reply with "yes" to confirm or "no" to cancel)
+
+### 4. Summarize Thread
+Tag the bot to get a summary of the discussion:
+```
+@your-bot-name Can you summarize this thread?
+@your-bot-name What was decided in this discussion?
+@your-bot-name Give me a recap of this conversation
+```
+
+The bot will:
+- Analyze your message to determine the intended action
+- Read the entire thread conversation
+- Use AI to process the request appropriately
+- Provide feedback and confirmation in the thread
+
+### Example Summary Output
+
+When you request a thread summary, the bot will provide a structured response like this:
+
+```
+📋 Thread Summary
+
+Overview: The team discussed the new authentication system architecture and made some key decisions while leaving several technical details open for future discussion.
+
+Open Points:
+1. Whether to use OAuth 2.0 or SAML for enterprise customers
+2. How to handle session management across microservices
+3. Database sharding strategy for user data
+
+Decisions Made:
+1. Use JWT tokens for API authentication
+2. Implement multi-factor authentication by Q2
+3. Migrate to new system by end of year
+
+Next Steps:
+1. Research OAuth vs SAML implementation costs
+2. Schedule architecture review meeting
+3. Create migration timeline
+
+View original thread
+```
 
 ## Features
 
-- Monitors Slack channels for app mentions
-- Extracts decision summaries using OpenAI's GPT-4o-mini
-- Generates descriptive tags for decision categorization
-- Saves decisions to Notion database with full context
-- Handles thread conversations and individual messages
+### Core Functionality
+- **Natural Language Processing**: Understands user intent from natural language commands
+- **Decision Management**: Full CRUD operations for decisions (Create, Read, Update, Delete)
+- **Thread Summarization**: Comprehensive analysis of discussion threads
+- **AI-Powered Analysis**: Uses OpenAI's GPT-5-mini for intelligent processing
+
+### Decision Operations
+- **Create**: Automatically extracts and logs new decisions with title, summary, and tags
+- **Update**: Finds and updates existing decisions based on thread context
+- **Delete**: Safely removes decisions with confirmation prompts
+- **Read**: Finds and displays related decisions from the database
+
+### Thread Analysis
+- **Comprehensive Summaries**: Generates structured summaries with:
+  - Overview of the discussion
+  - Open points (topics discussed but not decided)
+  - Decisions made (concrete conclusions reached)
+  - Next steps (action items and follow-ups)
+- **Confidence Scoring**: Provides confidence levels for summary accuracy
+- **Smart Categorization**: Automatically generates relevant tags for decisions
+
+### Integration Features
+- **Slack Integration**: Seamless interaction through Slack mentions and threads
+- **Notion Database**: Automatic synchronization with Notion for decision storage
+- **Thread Context**: Reads entire conversation threads for complete context
+- **Error Handling**: Robust error handling with user-friendly feedback
 
 ## Project Structure
 
